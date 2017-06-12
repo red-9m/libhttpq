@@ -3,8 +3,10 @@
 
 #include "httpq.h"
 
+#define HTTPQ_MAX_STRERR_LEN 64
+
 static CURL *g_curl = NULL;
-static char g_error[64];
+static char g_error[HTTPQ_MAX_STRERR_LEN];
 
 struct curl_callback_data
 {
@@ -27,10 +29,8 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     size_t result = size * nmemb;
     struct curl_callback_data *data = (struct curl_callback_data*)userp;
 
-    printf("1. size[%ld] nmemb[%ld] curr_len[%ld] max_len[%ld]\n", size, nmemb, data->curr_len, data->max_len);
     if ((data->buffer) && (data->curr_len + size * nmemb < data->max_len))
     {
-        printf("C. Do copy\n");
         // Copy received data plus trailing null
         snprintf(data->buffer + data->curr_len, size * nmemb + 1, "%s", (char *)contents);
         data->curr_len += size * nmemb;
@@ -85,9 +85,9 @@ const char* httpq_error(long aError)
 {
     const char* result = g_error;
     if ((aError >= 200) && (aError < 400))
-        snprintf(g_error, 64, "HTTP OK: %ld", aError);
+        snprintf(g_error, HTTPQ_MAX_STRERR_LEN, "HTTP OK: %ld", aError);
     else if ((aError >= 400) && (aError < 600))
-        snprintf(g_error, 64, "HTTP ERROR: %ld", aError);
+        snprintf(g_error, HTTPQ_MAX_STRERR_LEN, "HTTP ERROR: %ld", aError);
     else
         result = curl_easy_strerror(aError);
 

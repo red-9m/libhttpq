@@ -20,7 +20,7 @@ int main(int argc, char** argv)
     char post[POST_MAX_LEN];
     char resp[RESP_MAX_LEN];
 
-    snprintf(url, URL_MAX_LEN, "https://api.telegram.org/bot%s/sendMessag", argv[1]);
+    snprintf(url, URL_MAX_LEN, "https://api.telegram.org/bot%s/sendMessage", argv[1]);
     snprintf(post, POST_MAX_LEN, "parse_mode=HTML&chat_id=%s&text=%s", argv[2], "<b>Header</b>\n<code>This is httpq sample message</code>");
 
     long res = httpq_post(url, post, resp, RESP_MAX_LEN);

@@ -19,7 +19,7 @@ int main(int argc, char** argv)
     char resp[RESP_MAX_LEN];
 
     snprintf(url, URL_MAX_LEN, "https://api.telegram.org/bot%s/sendMessage", argv[1]);
-    char_p post_data[3][2] = {
+    const char *post_data[3][2] = {
         {"parse_mode", "HTML"},
         {"chat_id", argv[2]},
         {"text", "<b>Header</b>\n<code>This is httpq sample message with special http characters: [&][=][?]</code>"}};

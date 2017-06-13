@@ -4,11 +4,9 @@
 #include "httpq.h"
 
 #define ERR_MAX_LEN 64
-#define POST_MAX_LEN (64 * 1024)
 
 static CURL *g_curl = NULL;
 static char g_error[ERR_MAX_LEN];
-static char *g_post = NULL;
 
 struct curl_callback_data
 {
@@ -23,8 +21,6 @@ static void cleanup()
     {
         curl_easy_cleanup(g_curl);
         g_curl = NULL;
-        free(g_post);
-        g_post = NULL;
     }
 }
 
@@ -44,12 +40,56 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     return result;
 }
 
-long httpq_post(const char *aURL, const char* postData[][2], long postCount, char *aResp, long respLen)
+long httpq_prepare_post(const char *postData[][2], long postCount, char *outPost, long postLen)
 {
-    long http_code, i, local_res, offset = 0;
     char* escaped_post;
     CURL* curl;
+    long i, local_res, offset = 0;
+    long result = CURLE_FAILED_INIT;
 
+    if (outPost)
+        *outPost = '\0';
+
+    if (!g_curl)
+    {
+        g_curl = curl_easy_init();
+
+        atexit(cleanup);
+    }
+    curl = g_curl;
+
+    if (curl)
+    {
+        result = CURLE_OK;
+
+        for (i = 0; i < postCount; i++)
+        {
+            escaped_post = curl_easy_escape(curl, postData[i][1], 0);
+            local_res = snprintf(outPost + offset, postLen - offset, "%s=%s&", postData[i][0], escaped_post);
+            curl_free(escaped_post);
+
+            if ((local_res >= 0) && (local_res < postLen - offset))
+            {
+                offset += local_res;
+            }
+            else
+            {
+                result = CURLE_HTTP_POST_ERROR;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+long httpq_request_post(const char *aURL, const char *aPost, 
+                        const char *headerData[], long headerCount,
+                        char *aResp, long respLen)
+{
+    long i, http_code;
+    CURL* curl;
+    struct curl_slist *chunk = NULL;
     long result = CURLE_FAILED_INIT;
     struct curl_callback_data response = { aResp, respLen, 0 };
 
@@ -59,8 +99,6 @@ long httpq_post(const char *aURL, const char* postData[][2], long postCount, cha
     if (!g_curl)
     {
         g_curl = curl_easy_init();
-        if ((!g_post) && (g_curl))
-            g_post = malloc(POST_MAX_LEN);
 
         atexit(cleanup);
     }
@@ -69,29 +107,14 @@ long httpq_post(const char *aURL, const char* postData[][2], long postCount, cha
     if (curl)
     {
         result = curl_easy_setopt(curl, CURLOPT_URL, aURL);
-        if (result == CURLE_OK)
+        if ((result == CURLE_OK) && (headerCount > 0) && (headerData != NULL))
         {
-            for (i = 0; i < postCount; i++)
-            {
-                escaped_post = curl_easy_escape(curl, postData[i][1], 0);
-                local_res = snprintf(g_post + offset, POST_MAX_LEN - offset, "%s=%s&", postData[i][0], escaped_post);
-                curl_free(escaped_post);
-
-                if ((local_res >= 0) && (local_res < POST_MAX_LEN - offset))
-                {
-                    offset += local_res;
-                }
-                else
-                {
-                    result = CURLE_HTTP_POST_ERROR;
-                    break;
-                }
-            }
-
-            if (result == CURLE_OK)
-                result = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, g_post);
+            for (i = 0; i < headerCount; i++)
+                chunk = curl_slist_append(chunk, headerData[i]);
+            result = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
         }
-
+        if (result == CURLE_OK)
+            result = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, aPost);
         if (result == CURLE_OK)
             result = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
         if (result == CURLE_OK)

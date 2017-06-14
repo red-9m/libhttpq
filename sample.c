@@ -2,9 +2,7 @@
 #include <stdio.h>
 #include <httpq.h>
 
-#define URL_MAX_LEN 1024
-#define POST_MAX_LEN 1024
-#define RESP_MAX_LEN (16 * 1024)
+#define URL_MAX_LEN 256
 
 int main(int argc, char** argv)
 {
@@ -17,26 +15,36 @@ int main(int argc, char** argv)
     }
 
     char url[URL_MAX_LEN];
-    char resp[RESP_MAX_LEN];
-    char post[POST_MAX_LEN];
 
-
-    const char *post_data[3][2] = {
+    const char *post_data[][2] = {
         {"parse_mode", "HTML"},
         {"chat_id", argv[2]},
-        {"text", "<b>Header</b>\n<code>This is httpq sample message with special http characters: [&][=][?]</code>"}};
+        {"text", "<b>Hi!</b>\n<code>This is httpq sample message: 0123456789. Some special characters: [@][&][=][?]</code>"},
+        {"dummy", "dummy"},
+        {NULL, NULL}
+    };
 
-    const char *header_data[2] = {
+    const char *header_data[] = {
         "Accept: application/json",
-        "Accept-Language: en_US"};
+        "Accept-Language: en_US",
+        NULL
+    };
 
     snprintf(url, URL_MAX_LEN, "https://api.telegram.org/bot%s/sendMessage", argv[1]);
 
-    long res = httpq_prepare_post(post_data, 3, post, POST_MAX_LEN);
-    if (res == 0)
-        res = httpq_request_post(url, post, header_data, 2, resp, RESP_MAX_LEN);
+    httpq_init();
+    httpq_set_url(url);
+    httpq_set_post(post_data);
+    httpq_set_headers(header_data);
 
-    printf("HTTPQ result[%ld] [%s]\n", res, httpq_error(res));
+    long http, res;
+    char *resp = httpq_request_post(&res, &http);
+    if (resp)
+    {
+        printf("resp[%s]\n", resp);
+        free(resp);
+    }
+    printf("libHTTPQ sample result[%ld] http code[%ld] error string[%s]\n", res, http, httpq_error(res));
 
     return 0;
 }

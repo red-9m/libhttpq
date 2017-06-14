@@ -1,36 +1,74 @@
 #ifndef _LIBHTTPQ_H_
 #define _LIBHTTPQ_H_
 
-/** @brief Prepare POST string to be passed to httpq_prepare_post()
+/** @brief Initialize HTTPQ library
  *
- *  @param postData Array of post data
- *  @param postCount Item count in postData
- *  @param outPost Pointer to a buffer where POST string will be stored
- *  @param postLen Length of outPost
- *  @return 0 - ok; other - CURL error
+ *  @return CURL error code
  */
-extern long httpq_prepare_post(const char *postData[][2], long postCount, char *outPost, long postLen);
+extern long httpq_init();
+
+/** @brief Set URL data
+ *
+ *  @param aURL URL string
+ *  @return CURL error code
+ */
+extern long httpq_set_url(const char *aURL);
+
+/** @brief Set POST data
+ *
+ *  @param postData Two dimensional array of POST key/value
+ *                  Ex.: const char *pdata[][2] = {{"key1", "value1"}, {"key2", "value2"}, {NULL, NULL}};
+ *                  Array must be ended with {NULL, NULL} element
+ *  @return CURL error code
+ */
+extern long httpq_set_post(const char *postData[][2]);
+
+/** @brief Set header data
+ *
+ *  @param headerData Array of header values
+ *                    Ex.: const char *hdata[] = {"header1", "header2", NULL};
+ *                    Array must be ended with NULL element
+ *  @return CURL error code
+ */
+extern long httpq_set_headers(const char *headerData[]);
+
+/** @brief Set username
+ *
+ *  @param userName Username string
+ *  @return CURL error code
+ */
+extern long httpq_set_username(const char *userName);
+
+/** @brief Set user password
+ *
+ *  @param userPwd Password string
+ *  @return CURL error code
+ */
+extern long httpq_set_userpwd(const char *userPwd);
+
+/** @brief Set desited response limit
+ *
+ *         Response buffer size grows as it receives data from a server
+ *         By default limit is set to 4MB to avoid huge  memory allocation
+ *
+ *  @param respLimit New response limit in bytes. 0 - for unlimited 
+ */
+extern void httpq_set_limit_resp(long respLimit);
 
 /** @brief Make HTTP/HTTPS POST request
  *
- *  @param aURL HTTP/HTTPS URL
- *  @param aPost POST string prepared with httpq_prepare_post()
- *  @param headerData Array of header data
- *  @param headerCount Item count in headerData
- *  @param aResp Pointer to a buffer where response string will be stored
- *  @param respLen Length of aResp
- *  @return 100 and greater - HTTP code; less than 100 - CURL error
+ *  @param errorCode Output CURL error code
+ *  @param httpCode Output HTTP code (available if errorCode is CURLE_OK)
+ *  @return Allocated buffer with HTTP/HTTPS response or NULL in case of error
+ *          You must delete buffer later with free()
  */
-extern long httpq_request_post(const char *aURL, const char *aPost,
-                               const char *headerData[], long headerCount,
-                               char *aResp, long respLen);
+extern char* httpq_request_post(long* errorCode, long* httpCode);
 
-// Converts error code to string
-/** @brief Converts any error code produced with above functions to string
+/** @brief Converts CURL error code to string
  *
- *  @param aError Error code
+ *  @param errorCode CURL error code
  *  @return Error string
  */
-const char* httpq_error(long aError);
+const char* httpq_error(long errorCode);
 
 #endif

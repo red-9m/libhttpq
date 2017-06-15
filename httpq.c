@@ -89,7 +89,6 @@ long httpq_set_url(const char *aURL)
 
 long httpq_set_post(const char *postData[][2])
 {
-    CURL* curl;
     long i, local_res, offset = 0;
     long result = CURLE_OK;
     char** escaped_posts = NULL;
@@ -109,7 +108,7 @@ long httpq_set_post(const char *postData[][2])
     escaped_posts = malloc(sizeof(char*) * item_count);
     for (i = 0; i < item_count; i++)
     {
-        escaped_posts[i] = curl_easy_escape(curl, postData[i][1], 0);
+        escaped_posts[i] = curl_easy_escape(g_curl, postData[i][1], 0);
         //printf("item[%ld] - [%ld]=[%ld]\n", i, strlen(postData[i][0]), strlen(escaped_posts[i]));
         post_len += strlen(postData[i][0]) + strlen(escaped_posts[i]) + 2; // "=&"
     }

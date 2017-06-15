@@ -5,7 +5,7 @@ libHTTPQ - Simple HTTP query C library based on CURL
 cmake .
 
 # Compile:
-make
+cmake --build .
 
 # Run sample - send Telegram bot message
 > ./sample BOT_KEY CHAT_ID

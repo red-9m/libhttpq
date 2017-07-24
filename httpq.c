@@ -89,16 +89,16 @@ long httpq_set_url(const char *aURL)
 
 long httpq_set_post(const char *postData[][2])
 {
-    long i, local_res, offset = 0;
+    long local_res, offset = 0;
     long result = CURLE_OK;
     char** escaped_posts = NULL;
     long post_len = 0;
     long item_count = 0;
+    int i = 0;
 
     if (!postData)
         return CURLE_BAD_FUNCTION_ARGUMENT;
 
-    i = 0;
     while (postData[i][0])
     {
         i++;
@@ -142,6 +142,35 @@ long httpq_set_post(const char *postData[][2])
     return result;
 }
 
+long httpq_set_httppost(const char *postData[][2])
+{
+    long result = 0;
+    struct curl_httppost *formpost = NULL;
+    struct curl_httppost *lastptr = NULL;
+    int i = 0;
+
+    if (!postData)
+        return CURLE_BAD_FUNCTION_ARGUMENT;
+
+    while (result == 0 && postData[i][0])
+    {
+        result = curl_formadd(&formpost, &lastptr,
+            CURLFORM_COPYNAME, postData[i][0],
+            CURLFORM_COPYCONTENTS, postData[i][1],
+            CURLFORM_END);
+        i++;
+    }
+
+    if (result == 0)
+        result = curl_easy_setopt(g_curl, CURLOPT_HTTPPOST, formpost);
+    else
+        result = CURLE_BAD_FUNCTION_ARGUMENT;
+
+    curl_formfree(formpost);
+
+    return result;
+}
+
 long httpq_set_headers(const char *headerData[])
 {
     long i;
@@ -163,6 +192,8 @@ long httpq_set_headers(const char *headerData[])
         chunk = curl_slist_append(chunk, headerData[i]);
 
     result = curl_easy_setopt(g_curl, CURLOPT_HTTPHEADER, chunk);
+
+    curl_slist_free_all(chunk);
 
     return result;
 }

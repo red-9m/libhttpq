@@ -1,4 +1,4 @@
-# libHTTPQ ver. 0.0.4a
+# libHTTPQ ver. 0.0.5a
 libHTTPQ - Simple HTTP query C library based on CURL
 
 # Configure as shared library:

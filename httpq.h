@@ -23,6 +23,15 @@ extern long httpq_set_url(const char *aURL);
  */
 extern long httpq_set_post(const char *postData[][2]);
 
+/** @brief Set multipart POST data
+ *
+ *  @param postData Two dimensional array of POST key/value
+ *                  Ex.: const char *pdata[][2] = {{"key1", "value1"}, {"key2", "value2"}, {NULL, NULL}};
+ *                  Array must be ended with {NULL, NULL} element
+ *  @return CURL error code
+ */
+extern long httpq_set_httppost(const char *postData[][2]);
+
 /** @brief Set header data
  *
  *  @param headerData Array of header values

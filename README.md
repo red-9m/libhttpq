@@ -1,5 +1,5 @@
 # libHTTPQ ver. 0.0.5a
-libHTTPQ - Simple HTTP query C library based on CURL
+libHTTPQ - Simple HTTP query C library based on CURL. Supports http headers, username/password, POST and multipart POST requests.
 
 # Configure as shared library:
 cmake .

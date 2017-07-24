@@ -9,7 +9,9 @@
 
 static CURL *g_curl;
 static char *g_post;
+static struct curl_httppost *g_httppost = NULL;
 static long g_post_len;
+static struct curl_slist *g_headers = NULL;
 static long g_resp_limit = RESP_DEFAULT_LIMIT;
 
 struct curl_callback_data
@@ -24,7 +26,11 @@ static void cleanup()
     if (g_curl)
     {
         curl_easy_cleanup(g_curl);
+        curl_formfree(g_httppost);
+        curl_slist_free_all(g_headers);
         g_curl = NULL;
+        g_httppost = NULL;
+        g_headers = NULL;
 
         if (g_post && g_post_len > 0)
         {
@@ -145,16 +151,21 @@ long httpq_set_post(const char *postData[][2])
 long httpq_set_httppost(const char *postData[][2])
 {
     long result = 0;
-    struct curl_httppost *formpost = NULL;
     struct curl_httppost *lastptr = NULL;
     int i = 0;
 
     if (!postData)
         return CURLE_BAD_FUNCTION_ARGUMENT;
 
+    if (g_httppost)
+    {
+        curl_formfree(g_httppost);
+        g_httppost = NULL;
+    }
+
     while (result == 0 && postData[i][0])
     {
-        result = curl_formadd(&formpost, &lastptr,
+        result = curl_formadd(&g_httppost, &lastptr,
             CURLFORM_COPYNAME, postData[i][0],
             CURLFORM_COPYCONTENTS, postData[i][1],
             CURLFORM_END);
@@ -162,38 +173,33 @@ long httpq_set_httppost(const char *postData[][2])
     }
 
     if (result == 0)
-        result = curl_easy_setopt(g_curl, CURLOPT_HTTPPOST, formpost);
+        result = curl_easy_setopt(g_curl, CURLOPT_HTTPPOST, g_httppost);
     else
         result = CURLE_BAD_FUNCTION_ARGUMENT;
-
-    curl_formfree(formpost);
 
     return result;
 }
 
 long httpq_set_headers(const char *headerData[])
 {
-    long i;
     long result = CURLE_OK;
-    long item_count = 0;
-    struct curl_slist *chunk = NULL;
+    int i = 0;
 
     if (!headerData)
         return CURLE_BAD_FUNCTION_ARGUMENT;
 
-    i = 0;
+    if (g_headers)
+    {
+        curl_slist_free_all(g_headers);
+        g_headers = NULL;
+    }
+
     while (headerData[i])
     {
+        g_headers = curl_slist_append(g_headers, headerData[i]);
         i++;
     }
-    item_count = i;
-
-    for (i = 0; i < item_count; i++)
-        chunk = curl_slist_append(chunk, headerData[i]);
-
-    result = curl_easy_setopt(g_curl, CURLOPT_HTTPHEADER, chunk);
-
-    curl_slist_free_all(chunk);
+    result = curl_easy_setopt(g_curl, CURLOPT_HTTPHEADER, g_headers);
 
     return result;
 }
@@ -237,6 +243,11 @@ char* httpq_request_post(long* errorCode, long* httpCode)
         *httpCode = 0;
     }
     *errorCode = result;
+
+    curl_formfree(g_httppost);
+    curl_slist_free_all(g_headers);
+    g_headers = NULL;
+    g_httppost = NULL;
 
     return response.buffer;
 }

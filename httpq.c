@@ -148,7 +148,7 @@ long httpq_set_post(const char *postData[][2])
     return result;
 }
 
-long httpq_set_httppost(const char *postData[][2])
+long httpq_set_httppost(const char *postData[][3])
 {
     long result = 0;
     struct curl_httppost *lastptr = NULL;
@@ -165,10 +165,19 @@ long httpq_set_httppost(const char *postData[][2])
 
     while (result == 0 && postData[i][0])
     {
-        result = curl_formadd(&g_httppost, &lastptr,
-            CURLFORM_COPYNAME, postData[i][0],
-            CURLFORM_COPYCONTENTS, postData[i][1],
-            CURLFORM_END);
+        if (postData[i][2] == 0)
+        {
+            result = curl_formadd(&g_httppost, &lastptr,
+                CURLFORM_COPYNAME, postData[i][0],
+                CURLFORM_COPYCONTENTS, postData[i][1],
+                CURLFORM_END);
+        } else
+        {
+            result = curl_formadd(&g_httppost, &lastptr,
+                CURLFORM_COPYNAME, postData[i][0],
+                CURLFORM_FILE, postData[i][1],
+                CURLFORM_END);
+        }
         i++;
     }
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-make clean
+cmake --build . --target clean
 rm -rf ./CMakeFiles
 rm -rf ./CMakeCache.txt
 rm -rf ./Makefile

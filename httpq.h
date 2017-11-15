@@ -56,14 +56,24 @@ extern long httpq_set_username(const char *userName);
  */
 extern long httpq_set_userpwd(const char *userPwd);
 
-/** @brief Set desited response limit
+/** @brief Set desired response limit
  *
  *         Response buffer size grows as it receives data from a server
- *         By default limit is set to 4MB to avoid huge  memory allocation
+ *         By default limit is set to 4MB to avoid huge memory allocation
  *
- *  @param respLimit New response limit in bytes. 0 - for unlimited 
+ *  @param respLimit New response limit in bytes
+ *  @return CURL error code
  */
-extern void httpq_set_limit_resp(long respLimit);
+extern long httpq_set_limit_resp(long respLimit);
+
+/** @brief Set maximal time limit for request
+ *
+ *         By default time limit is set to 20 seconds
+ *
+ *  @param maxTime New time limit for request in seconds. 0 - for unlimited
+ *  @return CURL error code
+ */
+extern long httpq_set_maxtime(long maxTime);
 
 /** @brief Make HTTP/HTTPS POST request
  *
@@ -73,6 +83,11 @@ extern void httpq_set_limit_resp(long respLimit);
  *          You must delete buffer later with free()
  */
 extern char* httpq_request_post(long* errorCode, long* httpCode);
+
+/** @brief Reset all options that was set by httpq_set_xxx() calls
+ *
+ */
+extern void httpq_reset();
 
 /** @brief Converts CURL error code to string
  *

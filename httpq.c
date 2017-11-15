@@ -6,6 +6,7 @@
 
 #define RESP_DEFAULT_LEN  (8 * 1024)
 #define RESP_DEFAULT_LIMIT (4 * 1024 * 1024)
+#define REQ_DEFAULT_MAXTIME 20
 
 static CURL *g_curl;
 static char *g_post;
@@ -13,6 +14,7 @@ static struct curl_httppost *g_httppost = NULL;
 static long g_post_len;
 static struct curl_slist *g_headers = NULL;
 static long g_resp_limit = RESP_DEFAULT_LIMIT;
+static long g_maxtime_limit = REQ_DEFAULT_MAXTIME;
 
 struct curl_callback_data
 {
@@ -223,9 +225,16 @@ long httpq_set_userpwd(const char *userPwd)
     return curl_easy_setopt(g_curl, CURLOPT_USERPWD, userPwd);
 }
 
-void httpq_set_limit_resp(long respLimit)
+long httpq_set_limit_resp(long respLimit)
 {
     g_resp_limit = respLimit;
+    return CURLE_OK;
+}
+
+long httpq_set_maxtime(long maxTime)
+{
+    g_maxtime_limit = maxTime;
+    return CURLE_OK;
 }
 
 char* httpq_request_post(long* errorCode, long* httpCode)
@@ -234,13 +243,22 @@ char* httpq_request_post(long* errorCode, long* httpCode)
     char* resp = malloc(RESP_DEFAULT_LEN);
     struct curl_callback_data response = { resp, 0, RESP_DEFAULT_LEN };
 
-    result = curl_easy_setopt(g_curl, CURLOPT_WRITEFUNCTION, write_callback);
+    result = curl_easy_setopt(g_curl, CURLOPT_TIMEOUT, g_maxtime_limit);
+
+    if (result == CURLE_OK)
+        result = curl_easy_setopt(g_curl, CURLOPT_WRITEFUNCTION, write_callback);
 
     if (result == CURLE_OK)
         result = curl_easy_setopt(g_curl, CURLOPT_WRITEDATA, &response);
 
     if (result == CURLE_OK)
         result = curl_easy_perform(g_curl);
+
+    if (result == CURLE_OPERATION_TIMEDOUT)
+    {
+        curl_easy_setopt(g_curl, CURLOPT_FRESH_CONNECT, 1L);
+        result = curl_easy_perform(g_curl);
+    }
 
     if (result == CURLE_OK)
         result = curl_easy_getinfo(g_curl, CURLINFO_RESPONSE_CODE, httpCode);
@@ -259,6 +277,13 @@ char* httpq_request_post(long* errorCode, long* httpCode)
     g_httppost = NULL;
 
     return response.buffer;
+}
+
+void httpq_reset()
+{
+    httpq_set_limit_resp(RESP_DEFAULT_LIMIT);
+    httpq_set_maxtime(REQ_DEFAULT_MAXTIME);
+    curl_easy_reset(g_curl);
 }
 
 const char* httpq_error(long errorCode)

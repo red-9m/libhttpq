@@ -15,6 +15,7 @@ static long g_post_len;
 static struct curl_slist *g_headers = NULL;
 static long g_resp_limit = RESP_DEFAULT_LIMIT;
 static long g_maxtime_limit = REQ_DEFAULT_MAXTIME;
+static enum httpq_retry_policy g_retry_policy = rpRetryOnTimeoutError;
 
 struct curl_callback_data
 {
@@ -225,7 +226,7 @@ long httpq_set_userpwd(const char *userPwd)
     return curl_easy_setopt(g_curl, CURLOPT_USERPWD, userPwd);
 }
 
-long httpq_set_limit_resp(long respLimit)
+long httpq_set_limitresp(long respLimit)
 {
     g_resp_limit = respLimit;
     return CURLE_OK;
@@ -234,6 +235,12 @@ long httpq_set_limit_resp(long respLimit)
 long httpq_set_maxtime(long maxTime)
 {
     g_maxtime_limit = maxTime;
+    return CURLE_OK;
+}
+
+long httpq_set_retry(enum httpq_retry_policy retryPolicy)
+{
+    g_retry_policy = retryPolicy;
     return CURLE_OK;
 }
 
@@ -257,8 +264,10 @@ char* httpq_request_post(long* errorCode, long* httpCode)
     if (result == CURLE_OPERATION_TIMEDOUT)
     {
         curl_easy_setopt(g_curl, CURLOPT_FRESH_CONNECT, 1L);
-        result = curl_easy_perform(g_curl);
-    }
+        if (g_retry_policy == rpRetryOnTimeoutError)
+            result = curl_easy_perform(g_curl);
+    } else
+        curl_easy_setopt(g_curl, CURLOPT_FRESH_CONNECT, 0L);
 
     if (result == CURLE_OK)
         result = curl_easy_getinfo(g_curl, CURLINFO_RESPONSE_CODE, httpCode);
@@ -281,8 +290,9 @@ char* httpq_request_post(long* errorCode, long* httpCode)
 
 void httpq_reset()
 {
-    httpq_set_limit_resp(RESP_DEFAULT_LIMIT);
+    httpq_set_limitresp(RESP_DEFAULT_LIMIT);
     httpq_set_maxtime(REQ_DEFAULT_MAXTIME);
+    httpq_set_retry(rpRetryOnTimeoutError);
     curl_easy_reset(g_curl);
 }
 

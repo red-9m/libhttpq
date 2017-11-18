@@ -38,7 +38,7 @@ int main(int argc, char** argv)
     httpq_set_headers(header_data);
 
     response = httpq_request_post(&res, &http);
-    if (res == 0)
+    if (res == HTTPQ_OK)
     {
         printf("Response[%s]\n", response);
         free(response);

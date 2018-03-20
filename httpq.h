@@ -28,7 +28,7 @@ extern long httpq_set_url(const char *aURL);
  *
  *         Default value: no value
  *
- *  @param postData Two dimensional array of POST key/value
+ *  @param postData Array of POST key/value
  *                  Ex.: const char *pdata[][2] = {{"key1", "value1"}, {"key2", "value2"}, {NULL, NULL}};
  *                  Array must be ended with {NULL, NULL} element
  *  @return CURL error code
@@ -39,7 +39,7 @@ extern long httpq_set_post(const char *postData[][2]);
  *
  *         Default value: no value
  *
- *  @param postData Two dimensional array of POST key/value/is_file
+ *  @param postData Array of POST key/value/is_file
  *                  Ex.: const char *pdata[][3] = {{"sender", "John", 0}, {"pic", "/home/john/mypic.jpg", 1}, {NULL, NULL, NULL}};
  *                  Array must be ended with {NULL, NULL, NULL} element
  *                  If element's `is_file` parameter is `1` than passes as post data the contents of the file given in `value`

@@ -176,10 +176,13 @@ long httpq_set_httppost(const char *postData[][3])
                 CURLFORM_END);
         } else
         {
-            result = curl_formadd(&g_httppost, &lastptr,
-                CURLFORM_COPYNAME, postData[i][0],
-                CURLFORM_FILE, postData[i][1],
-                CURLFORM_END);
+            if ((postData[i][1]) && (postData[i][1][0] != 0))
+                result = curl_formadd(&g_httppost, &lastptr,
+                    CURLFORM_COPYNAME, postData[i][0],
+                    CURLFORM_FILE, postData[i][1],
+                    CURLFORM_END);
+            else
+                result = 0;
         }
         i++;
     }

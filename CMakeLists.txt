@@ -2,18 +2,20 @@ cmake_minimum_required(VERSION 3.2)
 project(libhttpq-project LANGUAGES C)
 
 if(POLICY CMP0065)
-cmake_policy(SET CMP0065 NEW)
+    cmake_policy(SET CMP0065 NEW)
 endif()
 
 option(BUILD_SHARED_LIBS "Default build library as shared" ON)
 if (NOT CMAKE_BUILD_TYPE)
-set(CMAKE_BUILD_TYPE Release CACHE STRING "Set Release as default build type" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Set Release as default build type" FORCE)
 endif()
+
 message(STATUS "--------------------------------------------------------------------------")
 message(STATUS "Project name    (PROJECT_NAME)          : " ${PROJECT_NAME})
 message(STATUS "Project dir     (PROJECT_SOURCE_DIR)    : " ${PROJECT_SOURCE_DIR})
 message(STATUS "Build type      (CMAKE_BUILD_TYPE)      : " ${CMAKE_BUILD_TYPE})
 message(STATUS "Build shared    (BUILD_SHARED_LIBS)     : " ${BUILD_SHARED_LIBS})
+message(STATUS "Install path    (HTTPQ_INSTALL_PATH)    : " ${HTTPQ_INSTALL_PATH})
 message(STATUS "--------------------------------------------------------------------------")
 
 # Sources
@@ -47,3 +49,10 @@ set_target_properties(sample PROPERTIES LINK_FLAGS ${_LINK_OPT})
 target_compile_definitions(sample PRIVATE ${_COMPILE_DEF})
 target_include_directories(sample BEFORE PUBLIC ${PROJECT_SOURCE_DIR})
 target_link_libraries(sample httpq curl)
+
+# Install
+if (HTTPQ_INSTALL_PATH)
+    install(TARGETS httpq LIBRARY DESTINATION ${HTTPQ_INSTALL_PATH})
+else()
+    install(TARGETS httpq LIBRARY DESTINATION ${PROJECT_SOURCE_DIR})
+endif()

@@ -15,6 +15,7 @@ message(STATUS "Project name    (PROJECT_NAME)          : " ${PROJECT_NAME})
 message(STATUS "Project dir     (PROJECT_SOURCE_DIR)    : " ${PROJECT_SOURCE_DIR})
 message(STATUS "Build type      (CMAKE_BUILD_TYPE)      : " ${CMAKE_BUILD_TYPE})
 message(STATUS "Build shared    (BUILD_SHARED_LIBS)     : " ${BUILD_SHARED_LIBS})
+message(STATUS "Install prefix  (CMAKE_INSTALL_PREFIX)  : " ${CMAKE_INSTALL_PREFIX})
 message(STATUS "Install path    (HTTPQ_INSTALL_PATH)    : " ${HTTPQ_INSTALL_PATH})
 message(STATUS "--------------------------------------------------------------------------")
 
@@ -24,7 +25,7 @@ file(GLOB sample-src sample.c)
 
 # Targets
 add_library(httpq ${sources})
-add_executable(sample ${sample-src})
+add_executable(sample EXCLUDE_FROM_ALL ${sample-src})
 
 # Options
 # Additional: -march=core-avx2 -mtune=core-avx2
@@ -53,6 +54,4 @@ target_link_libraries(sample httpq curl)
 # Install
 if (HTTPQ_INSTALL_PATH)
     install(TARGETS httpq LIBRARY DESTINATION ${HTTPQ_INSTALL_PATH})
-else()
-    install(TARGETS httpq LIBRARY DESTINATION ${PROJECT_SOURCE_DIR})
 endif()

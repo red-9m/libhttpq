@@ -7,8 +7,11 @@ cmake .
 # Configure as static library:
 cmake . -DBUILD_SHARED_LIBS=OFF
 
-# Compile:
+# Compile library:
 cmake --build .
+
+# Compile library and sample:
+cmake --build . --target sample
 
 # Clean:
 ./clean-dir

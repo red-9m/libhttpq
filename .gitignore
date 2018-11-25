@@ -4,5 +4,6 @@ Makefile
 cmake_install.cmake
 libhttpq.a
 libhttpq.so
-sample
+httpq-sample
 run_sample
+.vscode

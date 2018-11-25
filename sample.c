@@ -34,7 +34,7 @@ int main(int argc, char** argv)
 
     httpq_init();
     httpq_set_url(url);
-    httpq_set_post(post_data);
+    httpq_set_key_post(post_data);
     httpq_set_headers(header_data);
 
     response = httpq_request_post(&res, &http);

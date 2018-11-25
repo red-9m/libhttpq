@@ -25,7 +25,7 @@ file(GLOB sample-src sample.c)
 
 # Targets
 add_library(httpq ${sources})
-add_executable(sample EXCLUDE_FROM_ALL ${sample-src})
+add_executable(httpq-sample ${sample-src})
 
 # Options
 # Additional: -march=core-avx2 -mtune=core-avx2
@@ -43,13 +43,13 @@ set_target_properties(httpq PROPERTIES LINK_FLAGS ${_LINK_OPT})
 target_compile_definitions(httpq PRIVATE ${_COMPILE_DEF})
 target_link_libraries(httpq curl)
 
-# sample
-set_target_properties(sample PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
-target_compile_options(sample PRIVATE ${_COMPILE_OPT})
-set_target_properties(sample PROPERTIES LINK_FLAGS ${_LINK_OPT})
-target_compile_definitions(sample PRIVATE ${_COMPILE_DEF})
-target_include_directories(sample BEFORE PUBLIC ${PROJECT_SOURCE_DIR})
-target_link_libraries(sample httpq curl)
+# httpq-sample
+set_target_properties(httpq-sample PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+target_compile_options(httpq-sample PRIVATE ${_COMPILE_OPT})
+set_target_properties(httpq-sample PROPERTIES LINK_FLAGS ${_LINK_OPT})
+target_compile_definitions(httpq-sample PRIVATE ${_COMPILE_DEF})
+target_include_directories(httpq-sample BEFORE PUBLIC ${PROJECT_SOURCE_DIR})
+target_link_libraries(httpq-sample httpq)
 
 # Install
 if (HTTPQ_INSTALL_PATH)

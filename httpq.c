@@ -7,6 +7,9 @@
 #define RESP_DEFAULT_LEN  (8 * 1024)
 #define RESP_DEFAULT_LIMIT (4 * 1024 * 1024)
 #define REQ_DEFAULT_MAXTIME 20
+#define REQ_MAXKEYS 512
+
+const int HTTPQ_OK = CURLE_OK;
 
 static CURL *g_curl;
 static char *g_post;
@@ -50,8 +53,6 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     size_t result = data_size;
     struct curl_callback_data *data = (struct curl_callback_data*)userp;
 
-    // printf("data->allocated[%ld] data->len[%ld] data_size[%ld]\n", data->allocated, data->len, data_size);
-
     if (data->allocated - data->len < data_size + 1)
     {
         if (data->allocated < g_resp_limit)
@@ -66,9 +67,16 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     snprintf(data->buffer + data->len, result + 1, "%s", (char*)contents);
 
     data->len += result;
-    // printf("data->allocated[%ld] data->len[%ld] data_size[%ld] result[%ld]\n", data->allocated, data->len, data_size, result);
 
     return result;
+}
+
+static void post_resize(long postLen)
+{
+    if (g_post && g_post_len > 0)
+        free(g_post);
+    g_post = malloc(postLen);
+    g_post_len = postLen;
 }
 
 long httpq_init()
@@ -96,11 +104,35 @@ long httpq_set_url(const char *aURL)
         return curl_easy_setopt(g_curl, CURLOPT_URL, aURL);
 }
 
-long httpq_set_post(const char *postData[][2])
+long httpq_set_post(const char *postData)
+{
+    long local_res;
+    long result = CURLE_BAD_FUNCTION_ARGUMENT;
+    long post_len = 0;
+
+    if (!postData)
+        return result;
+
+    post_len = strlen(postData);
+
+    if (post_len > g_post_len)
+        post_resize(post_len);
+
+    local_res = snprintf(g_post, g_post_len, "%s", postData);
+
+    if (local_res >= g_post_len)
+        result = CURLE_HTTP_POST_ERROR;
+    else
+        result = curl_easy_setopt(g_curl, CURLOPT_POSTFIELDS, g_post);
+
+    return result;
+}
+
+long httpq_set_key_post(const char *postData[][2])
 {
     long local_res, offset = 0;
     long result = CURLE_OK;
-    char** escaped_posts = NULL;
+    char* escaped_posts[REQ_MAXKEYS];
     long post_len = 0;
     long item_count = 0;
     int i = 0;
@@ -114,36 +146,29 @@ long httpq_set_post(const char *postData[][2])
     }
     item_count = i;
 
-    escaped_posts = malloc(sizeof(char*) * item_count);
+    if (item_count > REQ_MAXKEYS)
+        return CURLE_BAD_FUNCTION_ARGUMENT;
+
     for (i = 0; i < item_count; i++)
     {
         escaped_posts[i] = curl_easy_escape(g_curl, postData[i][1], 0);
-        //printf("item[%ld] - [%ld]=[%ld]\n", i, strlen(postData[i][0]), strlen(escaped_posts[i]));
         post_len += strlen(postData[i][0]) + strlen(escaped_posts[i]) + 2; // "=&"
     }
     post_len++; // For trailing zero
-    //printf("post_len[%ld]\n", post_len);
 
     if (post_len > g_post_len)
-    {
-        if (g_post && g_post_len > 0)
-            free(g_post);
-        g_post = malloc(post_len);
-        g_post_len = post_len;
-    }
+        post_resize(post_len);
 
     for (i = 0; i < item_count; i++)
     {
         local_res = snprintf(g_post + offset, g_post_len - offset, "%s=%s&", postData[i][0], escaped_posts[i]);
+
         curl_free(escaped_posts[i]);
-        if ((local_res >= 0) && (local_res < g_post_len - offset))
+        if (local_res < g_post_len - offset)
             offset += local_res;
         else
             result = CURLE_HTTP_POST_ERROR;
     }
-    //printf("[%s][%ld][%ld]\n", g_post, strlen(g_post), result);
-
-    free(escaped_posts);
 
     if (result == CURLE_OK)
         result = curl_easy_setopt(g_curl, CURLOPT_POSTFIELDS, g_post);
@@ -151,7 +176,7 @@ long httpq_set_post(const char *postData[][2])
     return result;
 }
 
-long httpq_set_httppost(const char *postData[][3])
+long httpq_set_key_http_post(const char *postData[][3])
 {
     long result = 0;
     struct curl_httppost *lastptr = NULL;
@@ -219,23 +244,23 @@ long httpq_set_headers(const char *headerData[])
     return result;
 }
 
-long httpq_set_username(const char *userName)
+long httpq_set_user_name(const char *userName)
 {
     return curl_easy_setopt(g_curl, CURLOPT_USERNAME, userName);
 }
 
-long httpq_set_userpwd(const char *userPwd)
+long httpq_set_user_pwd(const char *userPwd)
 {
     return curl_easy_setopt(g_curl, CURLOPT_USERPWD, userPwd);
 }
 
-long httpq_set_limitresp(long respLimit)
+long httpq_set_limit_resp(long respLimit)
 {
     g_resp_limit = respLimit;
     return CURLE_OK;
 }
 
-long httpq_set_maxtime(long maxTime)
+long httpq_set_max_time(long maxTime)
 {
     g_maxtime_limit = maxTime;
     return CURLE_OK;
@@ -293,8 +318,8 @@ char* httpq_request_post(long* errorCode, long* httpCode)
 
 void httpq_reset()
 {
-    httpq_set_limitresp(RESP_DEFAULT_LIMIT);
-    httpq_set_maxtime(REQ_DEFAULT_MAXTIME);
+    httpq_set_limit_resp(RESP_DEFAULT_LIMIT);
+    httpq_set_max_time(REQ_DEFAULT_MAXTIME);
     httpq_set_retry(rpRetryOnTimeoutError);
     curl_easy_reset(g_curl);
 }

@@ -113,6 +113,7 @@ long httpq_set_post(const char *postData)
     if (!postData)
         return result;
 
+    post_len++; // For trailing zero
     post_len = strlen(postData);
 
     if (post_len > g_post_len)

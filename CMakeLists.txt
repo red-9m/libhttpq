@@ -1,9 +1,5 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 4.2)
 project(libhttpq-project LANGUAGES C)
-
-if(POLICY CMP0065)
-    cmake_policy(SET CMP0065 NEW)
-endif()
 
 option(BUILD_SHARED_LIBS "Default build library as shared" ON)
 if (NOT CMAKE_BUILD_TYPE)
@@ -36,7 +32,8 @@ set(_LINK_OPT "-flto -fuse-ld=gold")
 set(_COMPILE_DEF -D_POSIX_C_SOURCE=199309L)
 
 # Dependency libraries
-find_library(CURL curl)
+find_package(CURL 8.11.1 REQUIRED)
+find_package(Threads REQUIRED)
 
 # httpq
 set_target_properties(httpq PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
@@ -44,7 +41,7 @@ target_compile_options(httpq PRIVATE ${_COMPILE_OPT})
 set_target_properties(httpq PROPERTIES LINK_FLAGS ${_LINK_OPT})
 set_target_properties(httpq PROPERTIES PUBLIC_HEADER ${headers})
 target_compile_definitions(httpq PRIVATE ${_COMPILE_DEF})
-target_link_libraries(httpq curl)
+target_link_libraries(httpq PRIVATE CURL::libcurl Threads::Threads)
 target_include_directories(httpq PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 # httpq-sample

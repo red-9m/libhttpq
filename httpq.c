@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include <stdint.h>
+#include <pthread.h>
 #include <curl/curl.h>
 #include <string.h>
 
@@ -9,91 +11,156 @@
 #define REQ_DEFAULT_MAXTIME 20
 #define REQ_MAXKEYS 512
 
+#if LIBCURL_VERSION_NUM < 0x080b01
+#error libhttpq requires libcurl 8.11.1 or newer
+#endif
+
 const int HTTPQ_OK = CURLE_OK;
 
-static CURL *g_curl;
-static char *g_post;
-static struct curl_httppost *g_httppost = NULL;
-static long g_post_len;
-static struct curl_slist *g_headers = NULL;
-static long g_resp_limit = RESP_DEFAULT_LIMIT;
-static long g_maxtime_limit = REQ_DEFAULT_MAXTIME;
-static enum httpq_retry_policy g_retry_policy = rpRetryOnTimeoutError;
+static pthread_once_t g_curl_once = PTHREAD_ONCE_INIT;
+static CURLcode g_curl_init_result = CURLE_FAILED_INIT;
+
+struct httpq_client
+{
+    CURL *curl;
+    char *post;
+    curl_mime *mimepost;
+    long post_len;
+    struct curl_slist *headers;
+    long resp_limit;
+    long maxtime_limit;
+    enum httpq_retry_policy retry_policy;
+};
+
+static _Thread_local struct httpq_client g_client = {
+    NULL, NULL, NULL, 0, NULL,
+    RESP_DEFAULT_LIMIT, REQ_DEFAULT_MAXTIME, rpNoRetry
+};
+
+static void initialize_curl(void)
+{
+    const curl_version_info_data *version;
+
+    g_curl_init_result = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (g_curl_init_result != CURLE_OK)
+        return;
+
+    version = curl_version_info(CURLVERSION_NOW);
+    if (!version || !(version->features & CURL_VERSION_THREADSAFE) ||
+        atexit(curl_global_cleanup) != 0)
+    {
+        curl_global_cleanup();
+        g_curl_init_result = CURLE_FAILED_INIT;
+    }
+}
 
 struct curl_callback_data
 {
     char* buffer;
-    long len;
-    long allocated;
+    size_t len;
+    size_t allocated;
+    size_t limit;
 };
 
-static void cleanup()
+static void cleanup(void)
 {
-    if (g_curl)
+    if (g_client.curl)
     {
-        curl_easy_cleanup(g_curl);
-        curl_formfree(g_httppost);
-        curl_slist_free_all(g_headers);
-        g_curl = NULL;
-        g_httppost = NULL;
-        g_headers = NULL;
+        curl_easy_cleanup(g_client.curl);
+        curl_mime_free(g_client.mimepost);
+        curl_slist_free_all(g_client.headers);
+        g_client.curl = NULL;
+        g_client.mimepost = NULL;
+        g_client.headers = NULL;
 
-        if (g_post && g_post_len > 0)
+        if (g_client.post && g_client.post_len > 0)
         {
-            free(g_post);
-            g_post = NULL;
-            g_post_len = 0;
+            free(g_client.post);
+            g_client.post = NULL;
+            g_client.post_len = 0;
         }
     }
+
+    g_client.resp_limit = RESP_DEFAULT_LIMIT;
+    g_client.maxtime_limit = REQ_DEFAULT_MAXTIME;
+    g_client.retry_policy = rpNoRetry;
 }
 
 static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp)
 {
-    long data_size = size * nmemb;
-    size_t result = data_size;
+    size_t data_size;
+    size_t required;
     struct curl_callback_data *data = (struct curl_callback_data*)userp;
 
-    if (data->allocated - data->len < data_size + 1)
+    if (nmemb != 0 && size > SIZE_MAX / nmemb)
+        return 0;
+    data_size = size * nmemb;
+
+    if (data->len > data->limit || data_size > data->limit - data->len)
+        return 0;
+
+    required = data->len + data_size + 1;
+    if (data->allocated < required)
     {
-        if (data->allocated < g_resp_limit)
-        {
-            data->buffer = realloc(data->buffer, data->allocated + (data_size + 1) * 2);
-            data->allocated += (data_size + 1) * 2;
-        } else
-            result = 0;
+        char *new_buffer;
+        size_t new_allocated = data->allocated;
+
+        if (new_allocated <= (data->limit + 1) / 2)
+            new_allocated *= 2;
+        else
+            new_allocated = data->limit + 1;
+        if (new_allocated < required)
+            new_allocated = required;
+        if (new_allocated > data->limit + 1)
+            new_allocated = data->limit + 1;
+
+        new_buffer = realloc(data->buffer, new_allocated);
+        if (!new_buffer)
+            return 0;
+        data->buffer = new_buffer;
+        data->allocated = new_allocated;
     }
 
-    // Copy received data plus trailing null
-    snprintf(data->buffer + data->len, result + 1, "%s", (char*)contents);
+    memcpy(data->buffer + data->len, contents, data_size);
+    data->len += data_size;
+    data->buffer[data->len] = '\0';
 
-    data->len += result;
-
-    return result;
+    return data_size;
 }
 
-static void post_resize(long postLen)
+static long post_resize(long postLen)
 {
-    if (g_post && g_post_len > 0)
-        free(g_post);
-    g_post = malloc(postLen);
-    g_post_len = postLen;
+    char *new_post = realloc(g_client.post, postLen);
+
+    if (!new_post)
+        return CURLE_OUT_OF_MEMORY;
+
+    g_client.post = new_post;
+    g_client.post_len = postLen;
+    return CURLE_OK;
 }
 
 long httpq_init()
 {
     long result = CURLE_FAILED_INIT;
 
-    if (!g_curl)
-    {
-        g_curl = curl_easy_init();
-        if (g_curl)
-            atexit(cleanup);
-    }
+    if (pthread_once(&g_curl_once, initialize_curl) != 0)
+        return CURLE_FAILED_INIT;
+    if (g_curl_init_result != CURLE_OK)
+        return g_curl_init_result;
 
-    if (g_curl)
+    if (!g_client.curl)
+        g_client.curl = curl_easy_init();
+
+    if (g_client.curl)
         result = CURLE_OK;
 
     return result;
+}
+
+void httpq_cleanup()
+{
+    cleanup();
 }
 
 long httpq_set_url(const char *aURL)
@@ -101,7 +168,7 @@ long httpq_set_url(const char *aURL)
     if (!aURL)
         return CURLE_BAD_FUNCTION_ARGUMENT;
     else
-        return curl_easy_setopt(g_curl, CURLOPT_URL, aURL);
+        return curl_easy_setopt(g_client.curl, CURLOPT_URL, aURL);
 }
 
 long httpq_set_post(const char *postData)
@@ -116,15 +183,19 @@ long httpq_set_post(const char *postData)
     post_len = strlen(postData);
     post_len++; // For trailing zero
 
-    if (post_len > g_post_len)
-        post_resize(post_len);
+    if (post_len > g_client.post_len)
+    {
+        result = post_resize(post_len);
+        if (result != CURLE_OK)
+            return result;
+    }
 
-    local_res = snprintf(g_post, g_post_len, "%s", postData);
+    local_res = snprintf(g_client.post, g_client.post_len, "%s", postData);
 
-    if (local_res >= g_post_len)
+    if (local_res >= g_client.post_len)
         result = CURLE_HTTP_POST_ERROR;
     else
-        result = curl_easy_setopt(g_curl, CURLOPT_POSTFIELDS, g_post);
+        result = curl_easy_setopt(g_client.curl, CURLOPT_POSTFIELDS, g_client.post);
 
     return result;
 }
@@ -152,71 +223,103 @@ long httpq_set_key_post(const char *postData[][2])
 
     for (i = 0; i < item_count; i++)
     {
-        escaped_posts[i] = curl_easy_escape(g_curl, postData[i][1], 0);
+        escaped_posts[i] = curl_easy_escape(g_client.curl, postData[i][1], 0);
+        if (!escaped_posts[i])
+        {
+            while (i > 0)
+                curl_free(escaped_posts[--i]);
+            return CURLE_OUT_OF_MEMORY;
+        }
         post_len += strlen(postData[i][0]) + strlen(escaped_posts[i]) + 2; // "=&"
     }
     post_len++; // For trailing zero
 
-    if (post_len > g_post_len)
-        post_resize(post_len);
+    if (post_len > g_client.post_len)
+    {
+        result = post_resize(post_len);
+        if (result != CURLE_OK)
+        {
+            for (i = 0; i < item_count; i++)
+                curl_free(escaped_posts[i]);
+            return result;
+        }
+    }
+
+    g_client.post[0] = '\0';
 
     for (i = 0; i < item_count; i++)
     {
-        local_res = snprintf(g_post + offset, g_post_len - offset, "%s=%s&", postData[i][0], escaped_posts[i]);
+        local_res = snprintf(g_client.post + offset, g_client.post_len - offset, "%s=%s&", postData[i][0], escaped_posts[i]);
 
         curl_free(escaped_posts[i]);
-        if (local_res < g_post_len - offset)
+        if (local_res < g_client.post_len - offset)
             offset += local_res;
         else
             result = CURLE_HTTP_POST_ERROR;
     }
 
     if (result == CURLE_OK)
-        result = curl_easy_setopt(g_curl, CURLOPT_POSTFIELDS, g_post);
+        result = curl_easy_setopt(g_client.curl, CURLOPT_POSTFIELDS, g_client.post);
 
     return result;
 }
 
 long httpq_set_key_http_post(const char *postData[][3])
 {
-    long result = 0;
-    struct curl_httppost *lastptr = NULL;
+    long result = CURLE_OK;
     int i = 0;
 
     if (!postData)
         return CURLE_BAD_FUNCTION_ARGUMENT;
 
-    if (g_httppost)
+    if (g_client.mimepost)
     {
-        curl_formfree(g_httppost);
-        g_httppost = NULL;
+        curl_easy_setopt(g_client.curl, CURLOPT_MIMEPOST, NULL);
+        curl_mime_free(g_client.mimepost);
+        g_client.mimepost = NULL;
     }
 
-    while (result == 0 && postData[i][0])
+    g_client.mimepost = curl_mime_init(g_client.curl);
+    if (!g_client.mimepost)
+        return CURLE_OUT_OF_MEMORY;
+
+    while (result == CURLE_OK && postData[i][0])
     {
-        if (postData[i][2] == 0)
+        curl_mimepart *part;
+
+        if (postData[i][2] &&
+            (!postData[i][1] || postData[i][1][0] == '\0'))
         {
-            result = curl_formadd(&g_httppost, &lastptr,
-                CURLFORM_COPYNAME, postData[i][0],
-                CURLFORM_COPYCONTENTS, postData[i][1],
-                CURLFORM_END);
-        } else
-        {
-            if ((postData[i][1]) && (postData[i][1][0] != 0))
-                result = curl_formadd(&g_httppost, &lastptr,
-                    CURLFORM_COPYNAME, postData[i][0],
-                    CURLFORM_FILE, postData[i][1],
-                    CURLFORM_END);
-            else
-                result = 0;
+            i++;
+            continue;
         }
+        if (!postData[i][1])
+        {
+            result = CURLE_BAD_FUNCTION_ARGUMENT;
+            break;
+        }
+
+        part = curl_mime_addpart(g_client.mimepost);
+        if (!part)
+        {
+            result = CURLE_OUT_OF_MEMORY;
+            break;
+        }
+        result = curl_mime_name(part, postData[i][0]);
+        if (result == CURLE_OK && postData[i][2])
+            result = curl_mime_filedata(part, postData[i][1]);
+        else if (result == CURLE_OK)
+            result = curl_mime_data(part, postData[i][1], CURL_ZERO_TERMINATED);
         i++;
     }
 
-    if (result == 0)
-        result = curl_easy_setopt(g_curl, CURLOPT_HTTPPOST, g_httppost);
-    else
-        result = CURLE_BAD_FUNCTION_ARGUMENT;
+    if (result == CURLE_OK)
+        result = curl_easy_setopt(g_client.curl, CURLOPT_MIMEPOST, g_client.mimepost);
+    if (result != CURLE_OK)
+    {
+        curl_mime_free(g_client.mimepost);
+        g_client.mimepost = NULL;
+    }
 
     return result;
 }
@@ -229,77 +332,125 @@ long httpq_set_headers(const char *headerData[])
     if (!headerData)
         return CURLE_BAD_FUNCTION_ARGUMENT;
 
-    if (g_headers)
+    if (g_client.headers)
     {
-        curl_slist_free_all(g_headers);
-        g_headers = NULL;
+        curl_easy_setopt(g_client.curl, CURLOPT_HTTPHEADER, NULL);
+        curl_slist_free_all(g_client.headers);
+        g_client.headers = NULL;
     }
 
     while (headerData[i])
     {
-        g_headers = curl_slist_append(g_headers, headerData[i]);
+        struct curl_slist *new_headers = curl_slist_append(g_client.headers, headerData[i]);
+
+        if (!new_headers)
+        {
+            curl_slist_free_all(g_client.headers);
+            g_client.headers = NULL;
+            return CURLE_OUT_OF_MEMORY;
+        }
+        g_client.headers = new_headers;
         i++;
     }
-    result = curl_easy_setopt(g_curl, CURLOPT_HTTPHEADER, g_headers);
+    result = curl_easy_setopt(g_client.curl, CURLOPT_HTTPHEADER, g_client.headers);
 
     return result;
 }
 
 long httpq_set_user_name(const char *userName)
 {
-    return curl_easy_setopt(g_curl, CURLOPT_USERNAME, userName);
+    return curl_easy_setopt(g_client.curl, CURLOPT_USERNAME, userName);
 }
 
 long httpq_set_user_pwd(const char *userPwd)
 {
-    return curl_easy_setopt(g_curl, CURLOPT_USERPWD, userPwd);
+    return curl_easy_setopt(g_client.curl, CURLOPT_PASSWORD, userPwd);
 }
 
 long httpq_set_limit_resp(long respLimit)
 {
-    g_resp_limit = respLimit;
+    if (respLimit < 0)
+        return CURLE_BAD_FUNCTION_ARGUMENT;
+
+    g_client.resp_limit = respLimit;
     return CURLE_OK;
 }
 
 long httpq_set_max_time(long maxTime)
 {
-    g_maxtime_limit = maxTime;
+    g_client.maxtime_limit = maxTime;
     return CURLE_OK;
 }
 
 long httpq_set_retry(enum httpq_retry_policy retryPolicy)
 {
-    g_retry_policy = retryPolicy;
+    g_client.retry_policy = retryPolicy;
     return CURLE_OK;
 }
 
 char* httpq_request_post(long* errorCode, long* httpCode)
 {
     long result = CURLE_FAILED_INIT;
-    char* resp = malloc(RESP_DEFAULT_LEN);
-    struct curl_callback_data response = { resp, 0, RESP_DEFAULT_LEN };
+    size_t initial_size = RESP_DEFAULT_LEN;
+    char* resp;
+    struct curl_callback_data response;
 
-    result = curl_easy_setopt(g_curl, CURLOPT_TIMEOUT, g_maxtime_limit);
-
-    if (result == CURLE_OK)
-        result = curl_easy_setopt(g_curl, CURLOPT_WRITEFUNCTION, write_callback);
-
-    if (result == CURLE_OK)
-        result = curl_easy_setopt(g_curl, CURLOPT_WRITEDATA, &response);
-
-    if (result == CURLE_OK)
-        result = curl_easy_perform(g_curl);
-
-    if (result == CURLE_OPERATION_TIMEDOUT)
+    if (!errorCode || !httpCode)
     {
-        curl_easy_setopt(g_curl, CURLOPT_FRESH_CONNECT, 1L);
-        if (g_retry_policy == rpRetryOnTimeoutError)
-            result = curl_easy_perform(g_curl);
-    } else
-        curl_easy_setopt(g_curl, CURLOPT_FRESH_CONNECT, 0L);
+        if (errorCode)
+            *errorCode = CURLE_BAD_FUNCTION_ARGUMENT;
+        if (httpCode)
+            *httpCode = 0;
+        return NULL;
+    }
+
+    if ((size_t)g_client.resp_limit + 1 < initial_size)
+        initial_size = (size_t)g_client.resp_limit + 1;
+
+    resp = malloc(initial_size);
+    if (!resp)
+    {
+        *errorCode = CURLE_OUT_OF_MEMORY;
+        *httpCode = 0;
+        return NULL;
+    }
+    resp[0] = '\0';
+    response = (struct curl_callback_data) {
+        resp, 0, initial_size, (size_t)g_client.resp_limit
+    };
+
+    result = curl_easy_setopt(g_client.curl, CURLOPT_NOSIGNAL, 1L);
+    /* CURLOPT_POST would replace libcurl's multipart request mode. */
+    if (result == CURLE_OK && !g_client.mimepost)
+        result = curl_easy_setopt(g_client.curl, CURLOPT_POST, 1L);
 
     if (result == CURLE_OK)
-        result = curl_easy_getinfo(g_curl, CURLINFO_RESPONSE_CODE, httpCode);
+        result = curl_easy_setopt(g_client.curl, CURLOPT_TIMEOUT, g_client.maxtime_limit);
+
+    if (result == CURLE_OK)
+        result = curl_easy_setopt(g_client.curl, CURLOPT_WRITEFUNCTION, write_callback);
+
+    if (result == CURLE_OK)
+        result = curl_easy_setopt(g_client.curl, CURLOPT_WRITEDATA, &response);
+
+    if (result == CURLE_OK)
+        result = curl_easy_perform(g_client.curl);
+
+    if (result == CURLE_OPERATION_TIMEDOUT &&
+        g_client.retry_policy == rpRetryOnTimeoutError)
+    {
+        result = curl_easy_setopt(g_client.curl, CURLOPT_FRESH_CONNECT, 1L);
+        if (result == CURLE_OK)
+        {
+            response.len = 0;
+            response.buffer[0] = '\0';
+            result = curl_easy_perform(g_client.curl);
+        }
+        curl_easy_setopt(g_client.curl, CURLOPT_FRESH_CONNECT, 0L);
+    }
+
+    if (result == CURLE_OK)
+        result = curl_easy_getinfo(g_client.curl, CURLINFO_RESPONSE_CODE, httpCode);
 
     if (result != CURLE_OK)
     {
@@ -309,10 +460,12 @@ char* httpq_request_post(long* errorCode, long* httpCode)
     }
     *errorCode = result;
 
-    curl_formfree(g_httppost);
-    curl_slist_free_all(g_headers);
-    g_headers = NULL;
-    g_httppost = NULL;
+    curl_easy_setopt(g_client.curl, CURLOPT_MIMEPOST, NULL);
+    curl_easy_setopt(g_client.curl, CURLOPT_HTTPHEADER, NULL);
+    curl_mime_free(g_client.mimepost);
+    curl_slist_free_all(g_client.headers);
+    g_client.headers = NULL;
+    g_client.mimepost = NULL;
 
     return response.buffer;
 }
@@ -321,8 +474,12 @@ void httpq_reset()
 {
     httpq_set_limit_resp(RESP_DEFAULT_LIMIT);
     httpq_set_max_time(REQ_DEFAULT_MAXTIME);
-    httpq_set_retry(rpRetryOnTimeoutError);
-    curl_easy_reset(g_curl);
+    httpq_set_retry(rpNoRetry);
+    curl_easy_reset(g_client.curl);
+    curl_mime_free(g_client.mimepost);
+    curl_slist_free_all(g_client.headers);
+    g_client.mimepost = NULL;
+    g_client.headers = NULL;
 }
 
 const char* httpq_error(long errorCode)

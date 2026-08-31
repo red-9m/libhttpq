@@ -17,12 +17,12 @@ enum httpq_retry_policy
  *
  *  @return CURL error code
  */
-extern long httpq_init();
+extern long httpq_init(void);
 
 /** @brief Release HTTPQ resources owned by the calling thread
  *
  */
-extern void httpq_cleanup();
+extern void httpq_cleanup(void);
 
 /** @brief Set URL data
  *
@@ -145,7 +145,7 @@ extern char* httpq_request_post(long* errorCode, long* httpCode);
 /** @brief Reset all options that was set by httpq_set_xxx() calls to default
  *
  */
-extern void httpq_reset();
+extern void httpq_reset(void);
 
 /** @brief Converts CURL error code to string
  *

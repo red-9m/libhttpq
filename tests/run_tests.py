@@ -125,6 +125,7 @@ def compile_tests(build_dir):
     ]
     integration = Path(build_dir) / "test_httpq"
     allocation = Path(build_dir) / "test_alloc"
+    sample = Path(build_dir) / "httpq-sample"
     subprocess.run(
         common
         + ["-D_XOPEN_SOURCE=700", str(ROOT / "httpq.c"), str(ROOT / "tests/test_httpq.c")]
@@ -139,18 +140,30 @@ def compile_tests(build_dir):
         + ["-pthread", "-Wl,--wrap=malloc", "-Wl,--wrap=realloc", "-o", str(allocation)],
         check=True,
     )
-    return integration, allocation
+    subprocess.run(
+        common
+        + [str(ROOT / "httpq.c"), str(ROOT / "sample.c")]
+        + curl_flags
+        + ["-pthread", "-o", str(sample)],
+        check=True,
+    )
+    return integration, allocation, sample
 
 
 def main():
     with tempfile.TemporaryDirectory(prefix="libhttpq-tests-") as build_dir:
-        integration, allocation = compile_tests(build_dir)
+        integration, allocation, sample = compile_tests(build_dir)
         environment = dict(os.environ)
         if "address" in os.environ.get("SANITIZERS", "address,undefined"):
             environment["ASAN_OPTIONS"] = "abort_on_error=1:detect_leaks=1"
         if "thread" in os.environ.get("SANITIZERS", ""):
             environment["TSAN_OPTIONS"] = "halt_on_error=1"
         subprocess.run([allocation], check=True, env=environment)
+        sample_result = subprocess.run(
+            [sample], capture_output=True, text=True, env=environment
+        )
+        if sample_result.returncode != 1 or "Usage:" not in sample_result.stderr:
+            raise AssertionError("sample did not reject missing arguments safely")
 
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), TestHandler)
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)

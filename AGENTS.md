@@ -1,5 +1,16 @@
 # Repository guidance
 
+## Start every session
+
+- Run `git status --short` and inspect the relevant diff before editing.
+- Preserve all existing worktree changes unless the user explicitly asks to
+  discard them. Do not stage or commit unrelated work.
+- Read the public declarations in `httpq.h` and the focused tests before
+  changing behavior or ownership.
+- Keep changes small and within the wrapper's synchronous POST scope.
+- Never run the Telegram sample with real-looking arguments as a routine test;
+  it performs a live request. Never print or store bot keys or other secrets.
+
 ## Project purpose and scope
 
 `libhttpq` is a small C11 wrapper around libcurl for synchronous HTTP/HTTPS
@@ -7,10 +18,16 @@ requests. It supports raw and URL-encoded POST bodies, headers, Basic
 authentication, response limits, timeout policy, and MIME multipart forms.
 Keep changes focused and easy to review; this library is intentionally thin.
 
-Always inspect `git status` and the relevant diff before editing. Preserve all
-existing worktree changes unless the user explicitly asks to discard them.
+Repository map:
 
-## Required toolchain
+- `httpq.h` is the public API; `httpq.c` contains the implementation.
+- `sample.c` is a live Telegram example, not a general test client.
+- `tests/run_tests.py` is the canonical regression entry point.
+- `tests/test_httpq.c` covers behavior and concurrency against a local server.
+- `tests/test_alloc.c` includes `httpq.c` directly and wraps allocation calls.
+- `cmake/libhttpqConfig.cmake.in` defines the installed CMake package.
+
+## Build system contract
 
 - CMake 4.2 or newer.
 - A C11 compiler with `_Thread_local` support.
@@ -19,13 +36,26 @@ existing worktree changes unless the user explicitly asks to discard them.
 - Python 3, `pkg-config`, and compiler sanitizer support for the regression
   suite.
 
-The current CMake options are GNU-oriented (`-flto`, `-fuse-ld=gold`, and
-`-ffast-math`). Treat compiler/linker portability changes as separate focused
-work and verify them with both shared and static builds.
-
 Keep dependency discovery through `find_package(CURL 8.11.1 REQUIRED)` and link
-`CURL::libcurl`; do not revert to a literal `curl` library name. Both shared and
-static `httpq` builds must continue to work.
+`CURL::libcurl`; do not revert to a literal library name. Link POSIX threads
+through `Threads::Threads`.
+
+- The build-tree target is `httpq`; consumers should use the
+  `libhttpq::httpq` alias/export.
+- `BUILD_SHARED_LIBS` defaults to shared. `LIBHTTPQ_BUILD_SAMPLE` and
+  `LIBHTTPQ_ENABLE_IPO` default on only for a top-level build.
+- Sources are listed explicitly. Do not reintroduce source globs.
+- Keep C11 required with extensions disabled on the library and sample.
+- Keep compiler diagnostics target-scoped and guarded by toolchain checks. Do
+  not inject a specific linker or raw compiler-wide optimization flags.
+- Use CMake's checked IPO support. IPO may apply to the shared library and the
+  local sample, but the static library must contain ordinary objects so an
+  installed archive does not require matching downstream LTO settings.
+- Both shared and static builds must remain installable. The installed package
+  must provide `libhttpqConfig.cmake`, its version file, and
+  `libhttpq::httpq`.
+- `project(VERSION ...)` is the canonical release version. Keep the README,
+  package version, shared-library `VERSION`, and major `SOVERSION` aligned.
 
 ## Build and verification
 
@@ -50,17 +80,21 @@ SANITIZERS=thread python3 tests/run_tests.py
 
 The default test run uses AddressSanitizer and UndefinedBehaviorSanitizer. The
 suite compiles into a temporary directory and talks only to a local ephemeral
-HTTP server. `tests/test_alloc.c` intentionally includes `httpq.c` and wraps
-`malloc`/`realloc` to exercise otherwise difficult allocation failures.
+HTTP server. It also runs `httpq-sample` without arguments to cover its safe
+usage-error path without making a request. There is no CTest integration.
 
-For a full handoff, also run both shared and static CMake builds, optionally
-install them to temporary prefixes, run GCC `-fanalyzer` when available, and
-finish with `git diff --check`. Do not suppress new compiler warnings.
+For a full handoff, also:
 
-Do not use `httpq-sample` as a routine test: it sends a real Telegram request
-and requires live credentials. Never put bot keys or other secrets in the
-repository or command output. `clean-dir` is intended only for an in-source
-CMake build; prefer deleting a known temporary out-of-source build directory.
+- Build both shared and static variants with GCC and Clang when available.
+- For install or package changes, install both variants to temporary prefixes
+  and compile a small consumer with `find_package(libhttpq CONFIG REQUIRED)`.
+- Run GCC `-fanalyzer` when available.
+- Finish with `git diff --check` and a final `git status --short`.
+
+Do not suppress new compiler warnings.
+
+`clean-dir` is intended only for an in-source CMake build; prefer deleting a
+known temporary out-of-source build directory.
 
 ## Lifecycle and threading model
 
@@ -119,17 +153,6 @@ Do not regress these properties:
 - `httpq_set_user_pwd()` uses `CURLOPT_PASSWORD`; username and password are
   separate libcurl options.
 - Request state must stay isolated across concurrent threads.
-
-## Known remaining work
-
-The following review findings are not resolved by the current hardening and
-should not be mistaken for regressions introduced by new changes:
-
-- `sample.c` constructs `post_data` with `argv[2]` before checking `argc`, which
-  is undefined behavior when arguments are missing.
-
-There is currently no CTest integration; `tests/run_tests.py` is the canonical
-regression entry point.
 
 ## Code style
 

@@ -6,9 +6,18 @@
 
 int main(int argc, char** argv)
 {
-    long http, res;
+    long http = 0;
+    long res;
+    int url_len;
     char url[URL_MAX_LEN];
-    char *response;
+    char *response = NULL;
+
+    if (argc != 3)
+    {
+        fprintf(stderr, "Usage: %s <bot_key> <chat_id>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
     const char *post_data[][2] = {
         {"parse_mode", "HTML"},
         {"chat_id", argv[2]},
@@ -24,26 +33,36 @@ int main(int argc, char** argv)
 
     printf("libHTTPQ sample\n");
 
-    if (argc != 3)
+    url_len = snprintf(url, sizeof(url),
+        "https://api.telegram.org/bot%s/sendMessage", argv[1]);
+    if (url_len < 0 || (size_t)url_len >= sizeof(url))
     {
-        printf("Usage: %s <bot_key> <chat_id>\n", argv[0]);
-        return 1;
+        fprintf(stderr, "Bot key is too long\n");
+        return EXIT_FAILURE;
     }
 
-    snprintf(url, URL_MAX_LEN, "https://api.telegram.org/bot%s/sendMessage", argv[1]);
+    res = httpq_init();
+    if (res != HTTPQ_OK)
+    {
+        fprintf(stderr, "Initialization failed: %s\n", httpq_error(res));
+        return EXIT_FAILURE;
+    }
 
-    httpq_init();
-    httpq_set_url(url);
-    httpq_set_key_post(post_data);
-    httpq_set_headers(header_data);
-
-    response = httpq_request_post(&res, &http);
+    res = httpq_set_url(url);
     if (res == HTTPQ_OK)
+        res = httpq_set_key_post(post_data);
+    if (res == HTTPQ_OK)
+        res = httpq_set_headers(header_data);
+    if (res == HTTPQ_OK)
+        response = httpq_request_post(&res, &http);
+
+    if (response != NULL)
     {
         printf("Response[%s]\n", response);
         free(response);
     }
     printf("libHTTPQ sample result[%ld] http code[%ld] error string[%s]\n", res, http, httpq_error(res));
 
-    return 0;
+    httpq_cleanup();
+    return res == HTTPQ_OK ? EXIT_SUCCESS : EXIT_FAILURE;
 }

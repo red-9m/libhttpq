@@ -140,7 +140,7 @@ static long post_resize(long postLen)
     return CURLE_OK;
 }
 
-long httpq_init()
+long httpq_init(void)
 {
     long result = CURLE_FAILED_INIT;
 
@@ -158,7 +158,7 @@ long httpq_init()
     return result;
 }
 
-void httpq_cleanup()
+void httpq_cleanup(void)
 {
     cleanup();
 }
@@ -470,7 +470,7 @@ char* httpq_request_post(long* errorCode, long* httpCode)
     return response.buffer;
 }
 
-void httpq_reset()
+void httpq_reset(void)
 {
     httpq_set_limit_resp(RESP_DEFAULT_LIMIT);
     httpq_set_max_time(REQ_DEFAULT_MAXTIME);

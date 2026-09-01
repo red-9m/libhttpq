@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(CURL 8.11.1)
+find_dependency(Threads)
+
+include("${CMAKE_CURRENT_LIST_DIR}/libhttpqTargets.cmake")
+
+check_required_components(libhttpq)
